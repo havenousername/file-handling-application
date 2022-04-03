@@ -313,7 +313,6 @@ char* get_location() {
 
 applicant_t* create_applicant_from_stream() {
   char* name = NULL;
-  fflush(stdin);
   name = read_stream_string(stdin, NAME_SIZE);
   
   char* region_s = get_location();
@@ -363,6 +362,11 @@ void override_applicant() {
 }
 
 
+void flush_stdin() {
+  int c;
+  while ((c = getchar()) != '\n' && c != EOF);
+}
+
 // Application loop
 void app() {
   enum app_action action = READ;
@@ -376,6 +380,8 @@ void app() {
     printf("3 - DELETE A BUNNIE\n");
     printf("4 - READ ALL COMPETITORS\n");
     scanf("%u", &action);
+	
+    flush_stdin();
     switch(action) {
       case EXIT: break;
       case CREATE_APPLICANT:
