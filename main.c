@@ -27,7 +27,8 @@ enum app_action {
   CREATE_APPLICANT,
   MODIFY_APPLICANT,
   DELETE_APPLICANT,
-  READ
+  READ,
+  READ_REGION
 };
 
 enum area {
@@ -64,6 +65,7 @@ typedef struct applicant applicant_t;
 void print_applicant(applicant_t **appl);
 applicant_t* create_applicant_from_stream();
 int append_applicant(FILE **stream, applicant_t **t);
+char* get_location();
 
 // Initializers
 applicant_t *new_applicant(char *name, char *region, unsigned short int times) {
@@ -122,9 +124,7 @@ int parse_csv(char *filename, FILE **stream) {
       if (t->participation_times == 0) {
         break;
       }
-      printf("Name: %s", t->name);
-      printf(", Region: %s", t->region);
-      printf(", Times: %d\n", t->participation_times);
+      print_applicant(&t);
       free(t);
     }
     return 0;
@@ -133,9 +133,32 @@ int parse_csv(char *filename, FILE **stream) {
   }
 }
 
+int get_applicants_by_region(char* region, FILE **stream) {
+  applicant_t **applicants = (applicant_t**)calloc(SIZE, sizeof(applicant_t));
+  int counter = 0;  
+  while (1) {
+    applicant_t* t = new_applicant_from_stream(&stream);
+    if (strcmp(t->region, region) == 0) {
+        print_applicant(&t);
+        counter++;
+    }
+
+    if (t->participation_times == 0) {
+      break;
+    }
+    free(t);
+  }
+
+  if (counter == 0) {
+    printf("Could not find any applicant in this region. Please try again or create some bunnies in it\n");
+  }
+
+  return 0;
+}
+
 // CRUD operations for files
 
-int read_file(char* f_name, int (*parser)(char*, FILE**)) {
+int read_file(char* f_name, int (*parser)(char*, FILE**), char* filter) {
   unsigned int current_buffer_size = BUFFER_SIZE;
   printf("====Read the file====\n");
   FILE *stream;
@@ -145,7 +168,7 @@ int read_file(char* f_name, int (*parser)(char*, FILE**)) {
     exit(1);
   }
 
-  int res = parser(f_name, &stream);
+  int res = filter != NULL ? parser(filter, &stream) : parser(f_name, &stream);
 
   if (res == -1) {
     perror("Not corrent file format. Please check your file extension and try again");      
@@ -158,7 +181,8 @@ int read_file(char* f_name, int (*parser)(char*, FILE**)) {
 
 
 int override_file(char* f_name, char* name, char* region, int flag) {
-  applicant_t **applicants = (applicant_t**)calloc(SIZE, sizeof(applicant_t)); 
+  int applicants_size = SIZE;
+  applicant_t **applicants = (applicant_t**)calloc(applicants_size, sizeof(applicant_t)); 
   FILE *stream;
   stream = fopen(f_name, "r");
   if (stream == NULL) {
@@ -177,6 +201,11 @@ int override_file(char* f_name, char* name, char* region, int flag) {
     const int is_delete_applicant = flag == APPLICANT_DELETE && is_selected_applicant;
     if (is_delete_applicant) {
       continue;
+    }
+
+    if (counter == applicants_size) {
+      applicants_size *= 2;
+      applicants = (applicant_t**)realloc(applicants, applicants_size * sizeof(applicant_t));
     }
 
     const int is_override_applicant = flag == APPLICANT_OVERRIDE && is_selected_applicant;
@@ -242,7 +271,13 @@ void append_applicant_to_file(char* f_name, applicant_t *t,  int (*parser)(FILE*
 
 
 void read_all() {
-  read_file(FILENAME, parse_csv);
+  read_file(FILENAME, parse_csv, NULL);
+}
+
+void read_region() {
+  printf("Please provide a location which you would like to print:\n");
+  char* location = get_location();
+  read_file(FILENAME, get_applicants_by_region, location);
 }
 
 
@@ -254,7 +289,7 @@ char *get_string(FILE *stream, unsigned int buffer_size) {
   while (c != EOF && c != '\n' && c != ',') {
     if (length == buffer_size) {
       buffer_size *= 2;
-      buffer = realloc(buffer, buffer_size);
+      buffer = realloc(buffer, sizeof(char) * buffer_size);
     }
     buffer[length] = c;
     c = getc(stream);
@@ -379,11 +414,14 @@ void app() {
     printf("2 - OVERRIDE A BUNNIE\n");
     printf("3 - DELETE A BUNNIE\n");
     printf("4 - READ ALL COMPETITORS\n");
+    printf("5 - READ SELECTED REGION\n");
     scanf("%u", &action);
 	
     flush_stdin();
     switch(action) {
-      case EXIT: break;
+      case EXIT: 
+        printf("Thank you for using our application. Goodbye!\n");
+        break;
       case CREATE_APPLICANT:
         create_applicant();
         break;
@@ -393,7 +431,11 @@ void app() {
       case DELETE_APPLICANT:
         delete_applicant();
         break;
-      case READ: read_all();
+      case READ: 
+        read_all();
+        break;
+      case READ_REGION:
+        read_region(); 
         break;
       default: break;
     }
