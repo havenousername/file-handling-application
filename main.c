@@ -5,6 +5,10 @@
 #include <sys/types.h>
 #include <fcntl.h> 
 
+#include <sys/time.h>
+#include <unistd.h>  //fork
+#include <sys/wait.h> //waitpid
+
 // GLOBALS
 #define DEBUG 0
 
@@ -28,7 +32,8 @@ enum app_action {
   MODIFY_APPLICANT,
   DELETE_APPLICANT,
   READ,
-  READ_REGION
+  READ_REGION,
+  START_COMPETITION
 };
 
 enum area {
@@ -66,6 +71,7 @@ void print_applicant(applicant_t **appl);
 applicant_t* create_applicant_from_stream();
 int append_applicant(FILE **stream, applicant_t **t);
 char* get_location();
+void flush_stdin();
 
 // Initializers
 applicant_t *new_applicant(char *name, char *region, unsigned short int times) {
@@ -154,6 +160,59 @@ int get_applicants_by_region(char* region, FILE **stream) {
   }
 
   return 0;
+}
+
+int is_inside_locations(const char** regions, const char* region, int region_size) {
+    for (int i = 0; i < region_size; i++) {
+      if (strcmp(*(regions + i), region) == 0) {
+        return 1;
+      }
+    }
+    return 0;
+}
+struct applicants_arr {
+  applicant_t** applicants;
+  int size; 
+};
+
+
+typedef struct applicants_arr applicants_arr_t;
+
+applicants_arr_t  get_applicants_by_regions(const char* f_name, const char** regions) {
+   int applicants_size = 1;
+   unsigned int current_buffer_size = BUFFER_SIZE;
+   printf("===Get all required regions===\n");
+   FILE *stream;
+   stream = fopen(f_name, "r");
+   if (stream == NULL) {
+      perror("File opening error. Returning...\n");
+      exit(1);
+   }
+   applicant_t **applicants = (applicant_t**)malloc(applicants_size * sizeof(applicant_t*));
+   int counter = 0;
+
+   while (1) {
+      applicant_t* t = new_applicant_from_stream_t(&stream);
+
+      if (t->participation_times == 0) {
+        break;
+      } 
+
+      if (is_inside_locations(regions, t->region, 3)) {
+        applicants[counter] = t;
+        counter++;
+      }
+   }
+
+   if (counter == 0) {
+    printf("||WARNING|| No participants in the provided areas\n");
+   }
+
+   applicants_arr_t t;
+   t.applicants = applicants;
+   t.size = counter;
+
+   return t;
 }
 
 // CRUD operations for files
@@ -388,7 +447,7 @@ void delete_applicant() {
 
 void override_applicant() {
   printf("For overriding a bunnie you will need to provide its name and region (combination must be unique)\n");
-  fflush(stdin);
+  flush_stdin();
   
   printf("1. Write bunnies name.\n");
   char* name = read_stream_string(stdin, NAME_SIZE);
@@ -400,6 +459,140 @@ void override_applicant() {
 void flush_stdin() {
   int c;
   while ((c = getchar()) != '\n' && c != EOF);
+}
+
+struct competitor {
+  char name[50];
+  int eggs;
+};
+
+typedef struct competitor competitor_t;
+
+int generate_rand(int min, int max) {
+//  srand(time(NULL)); //the starting value of random number generation
+  int r= rand()%(max - min) + min; //number between min-max
+  return r;
+}
+
+void reset_rand() {
+  srand(time(NULL)); //the starting value of random number generation
+}
+
+void start_competition() {
+  printf("Starting competition now...\n");
+
+  const char* child2_areas[] = {
+    area_str[MALOM_TELEK],
+    area_str[PASKOM],
+    area_str[KAPOSZTAS_KERT]
+  };
+
+  int first_child_pipe[2];
+  int second_child_pipe[2];
+
+  int first_parent_pipe[2];
+  int second_parent_pipe[2];
+  
+  // applicants_arr_t applicant1 = get_applicants_by_regions(FILENAME, child1_areas);
+  // applicants_arr_t applicant2 = get_applicants_by_regions(FILENAME, child2_areas);
+
+  if (pipe(first_child_pipe) == -1) 
+  {
+    perror("Opening error!");
+    exit(EXIT_FAILURE);
+  }
+
+  if (pipe(second_child_pipe) == -1) {
+    perror("Opening error!");
+    exit(EXIT_FAILURE);
+  }
+
+  int status;
+  pid_t superviser1 = fork();
+  if (superviser1 < 0) {
+   perror("The forking of a new process could not be succeded.\n");
+   exit(1);
+  }
+
+  if (superviser1 > 0) {
+    pid_t superviser2 = fork();
+    if (superviser2 < 0) {
+      perror("The forking of a new process could not be succeded.\n");
+      exit(1);
+    }
+
+    if (superviser2 > 0) {
+      printf("Parent process\n");
+
+      // prepare data for child one
+      const char* child1_areas[] = {
+        area_str[BARATFA],
+        area_str[LOVAS],
+        area_str[SZULA],
+        area_str[KIYOS_PATAK]
+      };
+      applicants_arr_t applicant1 = get_applicants_by_regions(FILENAME, child1_areas);
+      char child1_names[applicant1.size * 100]; 
+      int size = 0;
+      for (int i = 0; i < applicant1.size; i++) {
+        size += strlen(applicant1.applicants[i]->name) + 1;
+        strcat(strcat(child1_names, applicant1.applicants[i]->name), ",");
+      }
+
+      close(first_child_pipe[0]);
+      write(first_child_pipe[1], child1_names, size);
+      close(first_child_pipe[1]);
+
+
+      printf("Start sleeping...\n");
+      sleep(2);
+      // waitpid(superviser1,&status,0); 
+      // waitpid(superviser2,&status,0); 
+    } else {
+      printf("Child 2 process\n");
+      exit(0);
+    }
+  } else {
+    close(first_child_pipe[1]);
+    printf("Child 1 process\n");
+    char* buffer = calloc(60, 4);
+
+    // reset random
+    reset_rand();
+
+    sleep(1);
+    read(first_child_pipe[0], buffer, 60);
+
+    printf("Bunnies data received: %s \n", buffer);
+
+    competitor_t* competitors = malloc(strlen(buffer) * sizeof(competitor_t));
+    FILE *stream;
+    stream = fmemopen(buffer, strlen(buffer), "r");
+
+    char ch;
+    int index_i = 0;
+    int index_j = 0;
+
+    while((ch = fgetc (stream)) != EOF){  
+      if (ch == ',') {
+        competitors[index_i].eggs = generate_rand(1, 100);
+        index_i++;
+        index_j = 0;
+        continue;
+      }
+      competitors[index_i].name[index_j] = ch;
+      index_j++;
+    }
+
+    fclose (stream);
+    printf("====Child 1 Ready for parent data ====\n");
+    for (int i = 0; i < index_i; i++) {
+      printf("Name: %s, Eggs %d \n", competitors[i].name, competitors[i].eggs);
+    }
+
+    close(first_child_pipe[0]);
+    exit(0);
+  }
 }
 
 // Application loop
@@ -415,6 +608,7 @@ void app() {
     printf("3 - DELETE A BUNNIE\n");
     printf("4 - READ ALL COMPETITORS\n");
     printf("5 - READ SELECTED REGION\n");
+    printf("6 - START COMPETITION\n");
     scanf("%u", &action);
 	
     flush_stdin();
@@ -437,6 +631,8 @@ void app() {
       case READ_REGION:
         read_region(); 
         break;
+      case START_COMPETITION:
+        start_competition();
       default: break;
     }
   }    
