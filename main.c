@@ -650,6 +650,12 @@ void start_competition() {
     }
 
     if (superviser2 > 0) {
+      // close unused pipes
+      close(first_child_pipe[0]);
+      close(second_child_pipe[0]);
+      close(first_parent_pipe[1]);
+      close(second_parent_pipe[1]);
+
       printf("Parent process\n");
 
       // prepare data for child one
@@ -661,10 +667,7 @@ void start_competition() {
       };
 
       char* child1_names = stringify_applicants_by_area(child1_areas);
-
-      close(first_child_pipe[0]);
       write(first_child_pipe[1], child1_names, strlen(child1_names));
-      close(first_child_pipe[1]);
 
       // prepare data for child 2
       const char* child2_areas[] = {
@@ -674,9 +677,7 @@ void start_competition() {
       };
 
       char* child2_names = stringify_applicants_by_area(child2_areas);
-      close(second_child_pipe[0]);
       write(second_child_pipe[1], child2_names, strlen(child2_names));
-      close(second_child_pipe[1]);
  
 
       printf("Parent: Start sleeping...\n");
@@ -685,8 +686,6 @@ void start_competition() {
       // receive data from child 1 & 2
       char* buffer = calloc(240, 4);
       char* buffer2 = calloc(240, 4);
-      close(first_parent_pipe[1]);
-      close(second_parent_pipe[1]);
 
       read(first_parent_pipe[0], buffer, 240);
       read(second_parent_pipe[0], buffer2, 240);
@@ -701,9 +700,6 @@ void start_competition() {
       competitor_t* competitors = c.competitors;
       int index_i = c.size;
 
-      close(first_parent_pipe[0]);
-      close(second_parent_pipe[0]);
-
       for (int i = 0; i < index_i; i++) {
         printf("Parent: Received in parent Name: %s, Eggs %d \n", competitors[i].name, competitors[i].eggs);
       }
@@ -714,7 +710,7 @@ void start_competition() {
       printf("\n");
       printf("You can start a new bunnie competition now...\n");
       sleep(1);
-      
+
       // free memory parent
       free(max_bunnie);
       free(child1_names);
@@ -722,6 +718,12 @@ void start_competition() {
       free(buffer);
       free(buffer2);
       free(competitors);
+
+      // close used pipes
+      close(second_child_pipe[1]);
+      close(first_child_pipe[1]);
+      close(first_parent_pipe[0]);
+      close(second_parent_pipe[0]);
     } else {
       // close unused pipes
       close(second_child_pipe[1]);
