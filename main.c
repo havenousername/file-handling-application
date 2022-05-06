@@ -474,6 +474,38 @@ int generate_rand(int min, int max) {
   return r;
 }
 
+char* int_to_string(int i) {
+  int length = snprintf( NULL, 0, "%d", i );
+  char* str = malloc( length + 1 );
+  snprintf( str, length + 1, "%d", i );
+
+  return str;
+}
+
+char* max_search(competitor_t *competitors, int size) {
+  char* max_bunnie = malloc(sizeof(char) * 8);  
+  int max_eggs = 0;
+  for (int i = 0; i < size; i++) {
+    if (max_eggs < competitors[i].eggs) {
+      max_eggs = competitors[i].eggs;
+      strcpy(max_bunnie, competitors[i].name);
+    }
+  }
+
+  return max_bunnie;
+}
+
+char* stringify_applicants_by_area(char** child_areas) {
+  applicants_arr_t applicant1 = get_applicants_by_regions(FILENAME, child_areas);
+  char child1_names[applicant1.size * 100]; 
+  int size = 0;
+  for (int i = 0; i < applicant1.size; i++) {
+    size += strlen(applicant1.applicants[i]->name) + 1;
+    strcat(strcat(child1_names, applicant1.applicants[i]->name), ",");
+  }
+  return child1_names;
+}
+
 void reset_rand() {
   srand(time(NULL)); //the starting value of random number generation
 }
@@ -498,6 +530,16 @@ void start_competition() {
 
   if (pipe(first_child_pipe) == -1) 
   {
+    perror("Opening error!");
+    exit(EXIT_FAILURE);
+  }
+
+  if (pipe(second_child_pipe) == -1) {
+    perror("Opening error!");
+    exit(EXIT_FAILURE);
+  }
+
+  if (pipe(first_parent_pipe) == -1) {
     perror("Opening error!");
     exit(EXIT_FAILURE);
   }
@@ -543,17 +585,74 @@ void start_competition() {
       write(first_child_pipe[1], child1_names, size);
       close(first_child_pipe[1]);
 
+      // prepare data for child 2
+      const char* child2_areas[] = {
+        area_str[MALOM_TELEK],
+        area_str[PASKOM],
+        area_str[KAPOSZTAS_KERT],
+      };
+ 
 
       printf("Start sleeping...\n");
       sleep(2);
-      // waitpid(superviser1,&status,0); 
-      // waitpid(superviser2,&status,0); 
+
+      // receive data from child 1 
+      char* buffer = calloc(120, 4);
+      close(first_parent_pipe[1]);
+      read(first_parent_pipe[0], buffer, 120);
+
+      // prepare the buffer for the max-search
+      competitor_t* competitors = malloc(strlen(buffer) * sizeof(competitor_t));
+      FILE *stream;
+      stream = fmemopen(buffer, strlen(buffer), "r");
+
+      char ch;
+      int index_i = 0;
+      int index_j = 0;
+      int first_letter = 1;
+      char* eggs_str = malloc(sizeof(char) * 3);
+
+      while((ch = fgetc (stream)) != EOF){  
+        if (ch == '\n') {
+          competitors[index_i].eggs = atoi(eggs_str);
+          first_letter = 1;
+          index_i++;
+          index_j = 0;
+          continue;
+        }
+
+        if (ch == ',') {
+          first_letter = 0;
+          index_j = 0;
+          continue;
+        }
+
+        if (first_letter) {
+          competitors[index_i].name[index_j] = ch;
+        } else {
+          eggs_str[index_j] = ch;
+        }
+        index_j++;
+      }
+
+      close(first_parent_pipe[0]);
+
+      for (int i = 0; i < index_i; i++) {
+        printf("Received in parent Name: %s, Eggs %d \n", competitors[i].name, competitors[i].eggs);
+      }
+
+      char* max_bunnie = max_search(competitors, index_i);
+      printf("||||WINNER OF THE COMPETITION IS %s. CONGRADULATIONS. ||||\n", max_bunnie);
+      printf("You can start a new bunnie competion now...");
+      sleep(1);
     } else {
       printf("Child 2 process\n");
       exit(0);
     }
   } else {
     close(first_child_pipe[1]);
+    close(first_parent_pipe[0]);
+
     printf("Child 1 process\n");
     char* buffer = calloc(60, 4);
 
@@ -586,10 +685,21 @@ void start_competition() {
 
     fclose (stream);
     printf("====Child 1 Ready for parent data ====\n");
+    char* buffer2 = calloc(index_i, sizeof(char) * 2);
     for (int i = 0; i < index_i; i++) {
       printf("Name: %s, Eggs %d \n", competitors[i].name, competitors[i].eggs);
+      char* eggs_str = malloc(sizeof(char) * 8);
+      strcat(eggs_str, ",");
+      strcat(eggs_str, int_to_string(competitors[i].eggs));
+      strcat(eggs_str, "\n");
+      strcat(buffer2, strcat(competitors[i].name, eggs_str));
     }
 
+    printf("===Child 1. Preparing Data to be sent back to parent===\n");
+    printf("Buffer data: \n%s", buffer2);
+    write(first_parent_pipe[1], buffer2, strlen(buffer2));
+
+    close(first_parent_pipe[1]);
     close(first_child_pipe[0]);
     exit(0);
   }
